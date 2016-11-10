@@ -22,9 +22,6 @@
     <Filter Include="utils">
       <UniqueIdentifier>{60d74637-7ccd-405b-ac19-235c63d2d8ba}</UniqueIdentifier>
     </Filter>
-    <Filter Include="luatinker">
-      <UniqueIdentifier>{c99a3ee7-75af-4c3a-84fd-c169061c7329}</UniqueIdentifier>
-    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\src\Joynet.cpp">
@@ -53,9 +50,6 @@
     </ClCompile>
     <ClCompile Include="..\3rdparty\accumulation-dev\src\timer\timer.cpp">
       <Filter>timer</Filter>
-    </ClCompile>
-    <ClCompile Include="..\3rdparty\lua_tinker\lua_tinker.cpp">
-      <Filter>luatinker</Filter>
     </ClCompile>
     <ClCompile Include="..\3rdparty\accumulation-dev\src\utils\systemlib.c">
       <Filter>utils</Filter>
@@ -112,9 +106,6 @@
     </ClInclude>
     <ClInclude Include="..\3rdparty\accumulation-dev\src\timer\timer.h">
       <Filter>timer</Filter>
-    </ClInclude>
-    <ClInclude Include="..\3rdparty\lua_tinker\lua_tinker.h">
-      <Filter>luatinker</Filter>
     </ClInclude>
     <ClInclude Include="..\3rdparty\accumulation-dev\src\utils\systemlib.h">
       <Filter>utils</Filter>

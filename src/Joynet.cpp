@@ -14,7 +14,6 @@
 #include "msgqueue.h"
 #include "connector.h"
 
-#include "lua_tinker.h"
 #include "NonCopyable.h"
 #include "md5calc.h"
 #include "SHA1.h"
@@ -24,6 +23,8 @@
 #ifdef USE_ZLIB
 #include "zlib.h"
 #endif
+
+#include "sol.hpp"
 
 static lua_State* L = nullptr;
 
@@ -107,7 +108,6 @@ static void luaRuntimeCheck(lua_State *L, lua_Debug *ar)
     int64_t nowTime = ox_getnowtime();
     if ((nowTime - monitorTime) >= 5000)
     {
-        /*TODO::callstack*/
         luaL_error(L, "%s", "while dead loop \n");
     }
 }
@@ -172,13 +172,18 @@ public:
 
         auto timer = mTimerMgr->AddTimer(delayMs, [=](){
             mTimerList.erase(id);
-            lua_tinker::call<void>(L, callback.c_str(), id);
+            sol::state_view lua(L);
+            sol::function luaCallback = lua[callback];
+            luaCallback(id);
         });
 
         mTimerList[id] = timer;
 
         return id;
     }
+
+#if 0
+    /*  TODO::previous version, i want save a lua funciton in cpp, will(can) call it after some time  */
 
     int64_t startLuaTimer(int delayMs, lua_tinker::luaValueRef callback)
     {
@@ -212,6 +217,7 @@ public:
 
         return id;
     }
+#endif
 
     void    removeTimer(int64_t id)
     {
@@ -386,13 +392,21 @@ private:
             {
                 auto luaSocket = std::make_shared<LuaTcpSession>();
                 mServiceList[msg->mServiceID]->mSessions[msg->mID] = luaSocket;
-
-                lua_tinker::call<void>(L, "__on_enter__", msg->mServiceID, msg->mID);
+                /*  
+                        TODO::construction sol::state_view obj, is expend too much time ?
+                        can i save a global sol::state_view obj ? reuse at here! is safe?
+                    */
+                /*  TODO::can you provide call funciton of sol::state_view ? */
+                sol::state_view lua(L);
+                sol::function enterFun = lua["__on_enter__"];
+                enterFun(msg->mServiceID, msg->mID);
             }
             else if (msg->mType == NetMsgType::NMT_CLOSE)
             {
                 mServiceList[msg->mServiceID]->mSessions.erase(msg->mID);
-                lua_tinker::call<void>(L, "__on_close__", msg->mServiceID, msg->mID);
+                sol::state_view lua(L);
+                sol::function closeFun = lua["__on_close__"];
+                closeFun(msg->mServiceID, msg->mID);
             }
             else if (msg->mType == NetMsgType::NMT_RECV_DATA)
             {
@@ -409,7 +423,10 @@ private:
                         auto& client = (*it).second;
                         client->mRecvData += msg->mData;
 
-                        int consumeLen = lua_tinker::call<int>(L, "__on_data__", msg->mServiceID, msg->mID, client->mRecvData, client->mRecvData.size());
+                        sol::state_view lua(L);
+                        sol::function onDataFunc = lua["__on_data__"];
+
+                        int consumeLen = onDataFunc(msg->mServiceID, msg->mID, client->mRecvData, client->mRecvData.size());
                         assert(consumeLen >= 0);
                         if (consumeLen == client->mRecvData.size())
                         {
@@ -433,7 +450,9 @@ private:
                 auto luaSocket = std::make_shared<LuaTcpSession>();
                 mServiceList[msg->mServiceID]->mSessions[msg->mID] = luaSocket;
                 int64_t uid = strtoll(msg->mData.c_str(), NULL, 10);
-                lua_tinker::call<void>(L, "__on_connected__", msg->mServiceID, msg->mID, uid);
+                sol::state_view lua(L);
+                sol::function onConnectedFunc = lua["__on_connected__"];
+                onConnectedFunc(msg->mServiceID, msg->mID, uid);
             }
             else
             {
@@ -444,12 +463,14 @@ private:
 
     void    processAsyncConnectResult()
     {
+        sol::state_view lua(L);
+        sol::function onAsyncConnectedFunc = lua["__on_async_connectd__"];
         mAsyncConnectResultList.SyncRead(0);
 
         AsyncConnectResult result;
         while (mAsyncConnectResultList.PopFront(result))
         {
-            lua_tinker::call<void>(L, "__on_async_connectd__", (int)result.fd, result.uid);
+            onAsyncConnectedFunc((int)result.fd, result.uid);
         }
     }
 
@@ -560,6 +581,85 @@ static std::string ZipUnCompress(const char* src, size_t len)
 
 #endif
 
+
+#if 1
+struct player {
+public:
+    int bullets;
+    int speed;
+
+    player()
+        : player(3, 100) {
+
+    }
+
+    player(int ammo)
+        : player(ammo, 100) {
+
+    }
+
+    player(int ammo, int hitpoints)
+        : bullets(ammo), hp(hitpoints) {
+
+    }
+
+    void boost() {
+        speed += 10;
+    }
+
+    bool shoot() {
+        if (bullets < 1)
+            return false;
+        --bullets;
+        return true;
+    }
+
+    void set_hp(int value) {
+        hp = value;
+    }
+
+    int get_hp() const {
+        return hp;
+    }
+
+private:
+    int hp;
+};
+
+static void TestSol2Example()
+{
+    sol::state lua;
+
+    // note that you can set a
+    // userdata before you register a usertype,
+    // and it will still carry
+    // the right metatable if you register it later
+
+    // set a variable "p2" of type "player" with 0 ammo
+    lua["p2"] = player(0);
+
+    // make usertype metatable
+    lua.new_usertype<player>("player",
+
+        // 3 constructors
+        sol::constructors<sol::types<>, sol::types<int>, sol::types<int, int>>(),
+
+        // typical member function that returns a variable
+        "shoot", &player::shoot,
+        // typical member function
+        "boost", &player::boost,
+
+        // gets or set the value using member variable syntax
+        "hp", sol::property(&player::get_hp, &player::set_hp),
+
+        // read and write variable
+        "speed", &player::speed,
+        // can only read from, not write to
+        "bullets", sol::readonly(&player::bullets)
+        );
+}
+#endif
+
 extern "C"
 {
 
@@ -572,49 +672,39 @@ __declspec(dllexport)
     {
         ::L = L;
         ox_socket_init();
+
     #ifdef USE_OPENSSL
         SSL_library_init();
         OpenSSL_add_all_algorithms();
         SSL_load_error_strings();
     #endif
 
-        lua_tinker::init(L);
+        sol::state_view lua(L);     /*  TODO:: can save lua obj to global ? */
 
-        /*lua_sethook(L, luaRuntimeCheck, LUA_MASKLINE, 0);*/
+        lua.new_usertype<CoreDD>("CoreDD",
+            "startMonitor", &CoreDD::startMonitor,
+            "getNowUnixTime", &CoreDD::getNowUnixTime,
+            "loop", &CoreDD::loop,
+            "createTCPService", &CoreDD::createTCPService,
+            "listen", &CoreDD::listen,
+            "startTimer", &CoreDD::startTimer,
+            "removeTimer", &CoreDD::removeTimer,
+            "shutdownTcpSession", &CoreDD::shutdownTcpSession,
+            "closeTcpSession", &CoreDD::closeTcpSession,
+            "sendToTcpSession", &CoreDD::sendToTcpSession,
+            "addSessionToService", &CoreDD::addSessionToService,
+            "asyncConnect", &CoreDD::asyncConnect);
 
-        lua_tinker::class_add<CoreDD>(L, "JoynetCore");
-        lua_tinker::class_con<CoreDD>(L, lua_tinker::constructor<CoreDD>);
-
-        lua_tinker::class_def<CoreDD>(L, "startMonitor", &CoreDD::startMonitor);
-        lua_tinker::class_def<CoreDD>(L, "getNowUnixTime", &CoreDD::getNowUnixTime);
-
-        lua_tinker::class_def<CoreDD>(L, "loop", &CoreDD::loop);
-
-        lua_tinker::class_def<CoreDD>(L, "createTCPService", &CoreDD::createTCPService);
-        lua_tinker::class_def<CoreDD>(L, "listen", &CoreDD::listen);
-
-
-        lua_tinker::class_def<CoreDD>(L, "startTimer", &CoreDD::startTimer);
-        lua_tinker::class_def<CoreDD>(L, "startLuaTimer", &CoreDD::startLuaTimer);
-        lua_tinker::class_def<CoreDD>(L, "removeTimer", &CoreDD::removeTimer);
-
-        lua_tinker::class_def<CoreDD>(L, "shutdownTcpSession", &CoreDD::shutdownTcpSession);
-        lua_tinker::class_def<CoreDD>(L, "closeTcpSession", &CoreDD::closeTcpSession);
-        lua_tinker::class_def<CoreDD>(L, "sendToTcpSession", &CoreDD::sendToTcpSession);
-
-        lua_tinker::class_def<CoreDD>(L, "addSessionToService", &CoreDD::addSessionToService);
-        lua_tinker::class_def<CoreDD>(L, "asyncConnect", &CoreDD::asyncConnect);
-
-        lua_tinker::def(L, "UtilsSha1", luaSha1);
-        lua_tinker::def(L, "UtilsMd5", luaMd5);
-        lua_tinker::def(L, "GetIPOfHost", GetIPOfHost);
-        lua_tinker::def(L, "UtilsCreateDir", ox_dir_create);
-        lua_tinker::def(L, "UtilsWsHandshakeResponse", UtilsWsHandshakeResponse);
-    #ifdef USE_ZLIB
-        lua_tinker::def(L, "ZipUnCompress", ZipUnCompress);
-    #endif
-
-        lua_tinker::set(L, "CoreDD", new CoreDD());
+        lua.set_function("UtilsSha1", luaSha1);
+        lua.set_function("UtilsMd5", luaMd5);
+        lua.set_function("GetIPOfHost", GetIPOfHost);
+        lua.set_function("UtilsCreateDir", ox_dir_create);
+        lua.set_function("UtilsWsHandshakeResponse", UtilsWsHandshakeResponse);
+#ifdef USE_ZLIB
+        lua.set_function(L, "ZipUnCompress", ZipUnCompress);
+#endif
+        /*  TODO:: must be a pointer ? obj is safe and correct(of my Joynet logic) ? */
+        lua["CoreDD"] = new CoreDD;
 
         return 1;
     }
