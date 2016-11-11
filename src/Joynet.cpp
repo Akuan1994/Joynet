@@ -4,6 +4,8 @@
 #include <string>
 #include <unordered_map>
 
+#include "lua.hpp"
+
 #include "systemlib.h"
 #include "SocketLibFunction.h"
 #include "ox_file.h"
@@ -26,7 +28,7 @@
 
 #include "sol.hpp"
 
-static lua_State* L = nullptr;
+static struct lua_State* GL = nullptr;
 
 class IdCreator : public NonCopyable
 {
@@ -117,6 +119,7 @@ class CoreDD : public NonCopyable
 public:
     CoreDD()
     {
+        mIsInitLuaHandler = false;
         mTimerMgr = std::make_shared<TimerMgr>();
         mNextServiceID = 0;
         mAsyncConnector = std::make_shared<ThreadConnector>();
@@ -172,7 +175,7 @@ public:
 
         auto timer = mTimerMgr->AddTimer(delayMs, [=](){
             mTimerList.erase(id);
-            sol::state_view lua(L);
+            sol::state_view lua(GL);
             sol::function luaCallback = lua[callback];
             luaCallback(id);
         });
@@ -182,42 +185,19 @@ public:
         return id;
     }
 
-#if 0
-    /*  TODO::previous version, i want save a lua funciton in cpp, will(can) call it after some time  */
-
-    int64_t startLuaTimer(int delayMs, lua_tinker::luaValueRef callback)
+    int64_t startLuaTimer(int delayMs, const sol::protected_function& callback)
     {
         auto id = mTimerIDCreator.claim();
 
-        auto timer = mTimerMgr->AddTimer(delayMs, [=](){
-
+        auto timer = mTimerMgr->AddTimer(delayMs, [=]() {
             mTimerList.erase(id);
-
-            lua_State *__L = callback.L;
-            if (__L == nullptr)
-            {
-                __L = L;
-            }
-
-            int __oldtop = lua_gettop(__L); 
-            lua_pushcclosure(__L, lua_tinker::on_error, 0);
-            int errfunc = lua_gettop(__L);
-            lua_rawgeti(__L, LUA_REGISTRYINDEX, callback.rindex);
-            if (lua_isfunction(__L, -1))
-            {
-                lua_pcall(__L, 0, 0, errfunc);
-            }
-            lua_remove(__L, errfunc);
-
-            lua_settop(__L,__oldtop);
-            lua_tinker::releaseLuaValueRef(callback);
+            callback();
         });
 
         mTimerList[id] = timer;
 
         return id;
     }
-#endif
 
     void    removeTimer(int64_t id)
     {
@@ -301,6 +281,8 @@ public:
 
     void    loop()
     {
+        tryInitLuaHandler();
+
         mLogicLoop.loop(mTimerMgr->IsEmpty() ? 100 : mTimerMgr->NearEndMs());
 
         processNetMsg();
@@ -356,6 +338,22 @@ public:
     }
 
 private:
+    void    tryInitLuaHandler()
+    {
+        if (!mIsInitLuaHandler)
+        {
+            sol::state_view lua(GL);
+            mLuaSessionEnterCallback = lua["__on_enter__"];
+            mLuaSessionConnectedCallback = lua["__on_connected__"];
+            mLuaSessionClosedCallback = lua["__on_close__"];
+            mLuaDataCallback = lua["__on_data__"];
+            mLuaSessionAsyncEnterCallback = lua["__on_async_connectd__"];
+
+            mIsInitLuaHandler = true;
+        }
+       
+    }
+
     void    pushMsg(int serviceID, NetMsgType type, int64_t id, const char* data = nullptr, size_t dataLen = 0)
     {
         auto msg = std::make_shared<NetMsg>(serviceID, type, id);
@@ -392,21 +390,12 @@ private:
             {
                 auto luaSocket = std::make_shared<LuaTcpSession>();
                 mServiceList[msg->mServiceID]->mSessions[msg->mID] = luaSocket;
-                /*  
-                        TODO::construction sol::state_view obj, is expend too much time ?
-                        can i save a global sol::state_view obj ? reuse at here! is safe?
-                    */
-                /*  TODO::can you provide call funciton of sol::state_view ? */
-                sol::state_view lua(L);
-                sol::function enterFun = lua["__on_enter__"];
-                enterFun(msg->mServiceID, msg->mID);
+                mLuaSessionEnterCallback(msg->mServiceID, msg->mID);
             }
             else if (msg->mType == NetMsgType::NMT_CLOSE)
             {
                 mServiceList[msg->mServiceID]->mSessions.erase(msg->mID);
-                sol::state_view lua(L);
-                sol::function closeFun = lua["__on_close__"];
-                closeFun(msg->mServiceID, msg->mID);
+                mLuaSessionClosedCallback(msg->mServiceID, msg->mID);
             }
             else if (msg->mType == NetMsgType::NMT_RECV_DATA)
             {
@@ -423,10 +412,8 @@ private:
                         auto& client = (*it).second;
                         client->mRecvData += msg->mData;
 
-                        sol::state_view lua(L);
-                        sol::function onDataFunc = lua["__on_data__"];
+                        int consumeLen = mLuaDataCallback(msg->mServiceID, msg->mID, client->mRecvData, client->mRecvData.size());
 
-                        int consumeLen = onDataFunc(msg->mServiceID, msg->mID, client->mRecvData, client->mRecvData.size());
                         assert(consumeLen >= 0);
                         if (consumeLen == client->mRecvData.size())
                         {
@@ -450,9 +437,7 @@ private:
                 auto luaSocket = std::make_shared<LuaTcpSession>();
                 mServiceList[msg->mServiceID]->mSessions[msg->mID] = luaSocket;
                 int64_t uid = strtoll(msg->mData.c_str(), NULL, 10);
-                sol::state_view lua(L);
-                sol::function onConnectedFunc = lua["__on_connected__"];
-                onConnectedFunc(msg->mServiceID, msg->mID, uid);
+                mLuaSessionConnectedCallback(msg->mServiceID, msg->mID, uid);
             }
             else
             {
@@ -463,14 +448,12 @@ private:
 
     void    processAsyncConnectResult()
     {
-        sol::state_view lua(L);
-        sol::function onAsyncConnectedFunc = lua["__on_async_connectd__"];
         mAsyncConnectResultList.SyncRead(0);
 
         AsyncConnectResult result;
         while (mAsyncConnectResultList.PopFront(result))
         {
-            onAsyncConnectedFunc((int)result.fd, result.uid);
+            mLuaSessionAsyncEnterCallback((int)result.fd, result.uid);
         }
     }
 
@@ -490,6 +473,13 @@ private:
 
     std::unordered_map<int, LuaTcpService::PTR> mServiceList;
     int                                         mNextServiceID;
+
+    bool                                        mIsInitLuaHandler;
+    sol::protected_function                     mLuaSessionEnterCallback;
+    sol::protected_function                     mLuaSessionConnectedCallback;
+    sol::protected_function                     mLuaSessionClosedCallback;
+    sol::protected_function                     mLuaDataCallback;
+    sol::protected_function                     mLuaSessionAsyncEnterCallback;
 };
 
 static std::string luaSha1(const std::string& str)
@@ -581,84 +571,13 @@ static std::string ZipUnCompress(const char* src, size_t len)
 
 #endif
 
-
-#if 1
-struct player {
-public:
-    int bullets;
-    int speed;
-
-    player()
-        : player(3, 100) {
-
-    }
-
-    player(int ammo)
-        : player(ammo, 100) {
-
-    }
-
-    player(int ammo, int hitpoints)
-        : bullets(ammo), hp(hitpoints) {
-
-    }
-
-    void boost() {
-        speed += 10;
-    }
-
-    bool shoot() {
-        if (bullets < 1)
-            return false;
-        --bullets;
-        return true;
-    }
-
-    void set_hp(int value) {
-        hp = value;
-    }
-
-    int get_hp() const {
-        return hp;
-    }
-
-private:
-    int hp;
-};
-
-static void TestSol2Example()
-{
-    sol::state lua;
-
-    // note that you can set a
-    // userdata before you register a usertype,
-    // and it will still carry
-    // the right metatable if you register it later
-
-    // set a variable "p2" of type "player" with 0 ammo
-    lua["p2"] = player(0);
-
-    // make usertype metatable
-    lua.new_usertype<player>("player",
-
-        // 3 constructors
-        sol::constructors<sol::types<>, sol::types<int>, sol::types<int, int>>(),
-
-        // typical member function that returns a variable
-        "shoot", &player::shoot,
-        // typical member function
-        "boost", &player::boost,
-
-        // gets or set the value using member variable syntax
-        "hp", sol::property(&player::get_hp, &player::set_hp),
-
-        // read and write variable
-        "speed", &player::speed,
-        // can only read from, not write to
-        "bullets", sol::readonly(&player::bullets)
-        );
+/*  TODO:: if lua script has error(such as write any error in src/Scheduler.lua __on_enter__ function , not go to here */
+static std::string my_error_function(const std::string& msg) {
+    // Customize error message, produce traceback with luaL_trackback, 
+    // print to std::cerr, etc...
+    std::cerr << msg << std::endl;
+    return msg;
 }
-#endif
 
 extern "C"
 {
@@ -670,7 +589,7 @@ __declspec(dllexport)
 
     int luaopen_Joynet(lua_State *L)
     {
-        ::L = L;
+        GL = L;
         ox_socket_init();
 
     #ifdef USE_OPENSSL
@@ -679,15 +598,17 @@ __declspec(dllexport)
         SSL_load_error_strings();
     #endif
 
-        sol::state_view lua(L);     /*  TODO:: can save lua obj to global ? */
+        sol::state_view lua(L);
+        sol::protected_function::set_default_handler(sol::object(lua, sol::in_place, my_error_function));
 
-        lua.new_usertype<CoreDD>("CoreDD",
+        lua.new_usertype<CoreDD>("CppCoreDD",
             "startMonitor", &CoreDD::startMonitor,
             "getNowUnixTime", &CoreDD::getNowUnixTime,
             "loop", &CoreDD::loop,
             "createTCPService", &CoreDD::createTCPService,
             "listen", &CoreDD::listen,
             "startTimer", &CoreDD::startTimer,
+            "startLuaTimer", &CoreDD::startLuaTimer,
             "removeTimer", &CoreDD::removeTimer,
             "shutdownTcpSession", &CoreDD::shutdownTcpSession,
             "closeTcpSession", &CoreDD::closeTcpSession,
@@ -701,10 +622,9 @@ __declspec(dllexport)
         lua.set_function("UtilsCreateDir", ox_dir_create);
         lua.set_function("UtilsWsHandshakeResponse", UtilsWsHandshakeResponse);
 #ifdef USE_ZLIB
-        lua.set_function(L, "ZipUnCompress", ZipUnCompress);
+        lua.set_function("ZipUnCompress", ZipUnCompress);
 #endif
-        /*  TODO:: must be a pointer ? obj is safe and correct(of my Joynet logic) ? */
-        lua["CoreDD"] = new CoreDD;
+        lua["CoreDD"] = std::make_shared<CoreDD>();
 
         return 1;
     }
