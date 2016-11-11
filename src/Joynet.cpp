@@ -571,7 +571,11 @@ static std::string ZipUnCompress(const char* src, size_t len)
 
 #endif
 
-/*  TODO:: if lua script has error(such as write any error in src/Scheduler.lua __on_enter__ function , not go to here */
+/*  
+    TODO:: if lua script occur error, will not arrive here;
+    (for example, write any error code in src/Scheduler.lua __on_enter__ function)
+    
+*/
 static std::string my_error_function(const std::string& msg) {
     // Customize error message, produce traceback with luaL_trackback, 
     // print to std::cerr, etc...
