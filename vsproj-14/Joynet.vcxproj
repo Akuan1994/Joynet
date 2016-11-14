@@ -49,7 +49,7 @@
       <WarningLevel>Level3</WarningLevel>
       <Optimization>Disabled</Optimization>
       <SDLCheck>true</SDLCheck>
-      <AdditionalIncludeDirectories>..\3rdparty\accumulation-dev\src\net;..\3rdparty\accumulation-dev\src\timer;..\3rdparty\accumulation-dev\src\utils;..\3rdparty\lualib;..\3rdparty\zlib;..\sol2;..\sol2\Catch\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>..\3rdparty\accumulation-dev\src\net;..\3rdparty\accumulation-dev\src\timer;..\3rdparty\accumulation-dev\src\utils;..\3rdparty\lualib;..\3rdparty\zlib;..\3rdparty\sol2;..\3rdparty\sol2\Catch\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <PreprocessorDefinitions>_WINSOCK_DEPRECATED_NO_WARNINGS;_CRT_SECURE_NO_WARNINGS;USE_ZLIB;%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>
     <Link>
@@ -68,7 +68,7 @@
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <SDLCheck>true</SDLCheck>
-      <AdditionalIncludeDirectories>..\3rdparty\accumulation-dev\src\net;..\3rdparty\accumulation-dev\src\timer;..\3rdparty\accumulation-dev\src\utils;..\3rdparty\lualib;..\3rdparty\zlib;..\sol2;..\sol2\Catch\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>..\3rdparty\accumulation-dev\src\net;..\3rdparty\accumulation-dev\src\timer;..\3rdparty\accumulation-dev\src\utils;..\3rdparty\lualib;..\3rdparty\zlib;..\3rdparty\sol2;..\3rdparty\sol2\Catch\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <PreprocessorDefinitions>NDEBUG;_WINSOCK_DEPRECATED_NO_WARNINGS;_CRT_SECURE_NO_WARNINGS;USE_ZLIB;%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>
     <Link>

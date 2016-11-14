@@ -117,9 +117,8 @@ static void luaRuntimeCheck(lua_State *L, lua_Debug *ar)
 class CoreDD : public NonCopyable
 {
 public:
-    CoreDD()
+    CoreDD() : mLua(GL)
     {
-        mIsInitLuaHandler = false;
         mTimerMgr = std::make_shared<TimerMgr>();
         mNextServiceID = 0;
         mAsyncConnector = std::make_shared<ThreadConnector>();
@@ -175,8 +174,7 @@ public:
 
         auto timer = mTimerMgr->AddTimer(delayMs, [=](){
             mTimerList.erase(id);
-            sol::state_view lua(GL);
-            sol::function luaCallback = lua[callback];
+            sol::protected_function luaCallback = mLua[callback];
             luaCallback(id);
         });
 
@@ -281,8 +279,6 @@ public:
 
     void    loop()
     {
-        tryInitLuaHandler();
-
         mLogicLoop.loop(mTimerMgr->IsEmpty() ? 100 : mTimerMgr->NearEndMs());
 
         processNetMsg();
@@ -338,21 +334,6 @@ public:
     }
 
 private:
-    void    tryInitLuaHandler()
-    {
-        if (!mIsInitLuaHandler)
-        {
-            sol::state_view lua(GL);
-            mLuaSessionEnterCallback = lua["__on_enter__"];
-            mLuaSessionConnectedCallback = lua["__on_connected__"];
-            mLuaSessionClosedCallback = lua["__on_close__"];
-            mLuaDataCallback = lua["__on_data__"];
-            mLuaSessionAsyncEnterCallback = lua["__on_async_connectd__"];
-
-            mIsInitLuaHandler = true;
-        }
-       
-    }
 
     void    pushMsg(int serviceID, NetMsgType type, int64_t id, const char* data = nullptr, size_t dataLen = 0)
     {
@@ -390,12 +371,13 @@ private:
             {
                 auto luaSocket = std::make_shared<LuaTcpSession>();
                 mServiceList[msg->mServiceID]->mSessions[msg->mID] = luaSocket;
-                mLuaSessionEnterCallback(msg->mServiceID, msg->mID);
+                
+                mLua["__on_enter__"](msg->mServiceID, msg->mID);
             }
             else if (msg->mType == NetMsgType::NMT_CLOSE)
             {
                 mServiceList[msg->mServiceID]->mSessions.erase(msg->mID);
-                mLuaSessionClosedCallback(msg->mServiceID, msg->mID);
+                mLua["__on_close__"](msg->mServiceID, msg->mID);
             }
             else if (msg->mType == NetMsgType::NMT_RECV_DATA)
             {
@@ -411,8 +393,8 @@ private:
 
                         auto& client = (*it).second;
                         client->mRecvData += msg->mData;
-
-                        int consumeLen = mLuaDataCallback(msg->mServiceID, msg->mID, client->mRecvData, client->mRecvData.size());
+                        
+                        int consumeLen = mLua["__on_data__"](msg->mServiceID, msg->mID, client->mRecvData, client->mRecvData.size());
 
                         assert(consumeLen >= 0);
                         if (consumeLen == client->mRecvData.size())
@@ -436,8 +418,8 @@ private:
             {
                 auto luaSocket = std::make_shared<LuaTcpSession>();
                 mServiceList[msg->mServiceID]->mSessions[msg->mID] = luaSocket;
-                int64_t uid = strtoll(msg->mData.c_str(), NULL, 10);
-                mLuaSessionConnectedCallback(msg->mServiceID, msg->mID, uid);
+                int64_t uid = strtoll(msg->mData.c_str(), NULL, 10);       
+                mLua["__on_connected__"](msg->mServiceID, msg->mID, uid);
             }
             else
             {
@@ -449,11 +431,11 @@ private:
     void    processAsyncConnectResult()
     {
         mAsyncConnectResultList.SyncRead(0);
-
+        auto callback = mLua["__on_async_connectd__"];
         AsyncConnectResult result;
         while (mAsyncConnectResultList.PopFront(result))
         {
-            mLuaSessionAsyncEnterCallback((int)result.fd, result.uid);
+            callback((int)result.fd, result.uid);
         }
     }
 
@@ -474,12 +456,7 @@ private:
     std::unordered_map<int, LuaTcpService::PTR> mServiceList;
     int                                         mNextServiceID;
 
-    bool                                        mIsInitLuaHandler;
-    sol::protected_function                     mLuaSessionEnterCallback;
-    sol::protected_function                     mLuaSessionConnectedCallback;
-    sol::protected_function                     mLuaSessionClosedCallback;
-    sol::protected_function                     mLuaDataCallback;
-    sol::protected_function                     mLuaSessionAsyncEnterCallback;
+    sol::state_view                             mLua;
 };
 
 static std::string luaSha1(const std::string& str)
@@ -571,17 +548,10 @@ static std::string ZipUnCompress(const char* src, size_t len)
 
 #endif
 
-/*  
-    TODO:: if lua script occur error, will not arrive here;
-    (for example, write any error code in src/Scheduler.lua __on_enter__ function)
-    
-*/
 static std::string my_error_function(const std::string& msg) {
-    // Customize error message, produce traceback with luaL_trackback, 
-    // print to std::cerr, etc...
     std::cerr << msg << std::endl;
     return msg;
-}
+}              
 
 extern "C"
 {
@@ -603,6 +573,7 @@ __declspec(dllexport)
     #endif
 
         sol::state_view lua(L);
+
         sol::protected_function::set_default_handler(sol::object(lua, sol::in_place, my_error_function));
 
         lua.new_usertype<CoreDD>("CppCoreDD",
@@ -628,6 +599,7 @@ __declspec(dllexport)
 #ifdef USE_ZLIB
         lua.set_function("ZipUnCompress", ZipUnCompress);
 #endif
+
         lua["CoreDD"] = std::make_shared<CoreDD>();
 
         return 1;
