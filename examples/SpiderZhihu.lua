@@ -3,6 +3,8 @@ require("Joynet")
 local ZhihuConfig = require "examples.ZhihuConfig"
 local TcpService = require "TcpService"
 local HttpClient = require "HttpClient"
+local Lock = require "lock"
+local Cond = require "cond"
 
 local picTypes = {"png", "jpg", "jpeg"}
 
@@ -43,7 +45,7 @@ end
 
 local function urlEnCode(w)
     local pattern="[^%w%d%._%-%* ]"  
-    s=string.gsub(w,pattern,function(c)  
+    s=string.gsub(w,pattern,function(c)
         local c=string.format("%%%02X",string.byte(c))  
         return c  
     end)  
@@ -51,32 +53,32 @@ local function urlEnCode(w)
     return s  
 end
 
+local DownloadingNum = 0
+local downloadGuard = Lock.New()
+local downloadCond = Cond.New()
 
-local picCos = {}
-
-local function ControlConcurrentRequestPic(clientService, pic_url, dirname, qoffset)
-    while true do
-        local num = 0
-        local tmp = {}
-        for i,v in ipairs(picCos) do
-            if v.co ~= nil and coroutine.status(v.co) ~= "dead" then
-                table.insert(tmp, v)
-            end
-        end
-
-        picCos = tmp
-
-        if #picCos < ZhihuConfig.MaxConcurrentPicNum then
-            break
-        else
-            coroutine_sleep(coroutine_running(), 5)    --TODO::提供锁原语,并想办法加快唤醒
-        end
+local function DownloadConcurrentControl(clientService, pic_url, dirname, qoffset)
+    downloadGuard:Lock()
+    
+    while DownloadingNum >= ZhihuConfig.MaxConcurrentPicNum do
+        downloadGuard:Unlock()
+        downloadCond:wait()
+        downloadGuard:Lock()
     end
-
-    local picCo = coroutine_start(function ()
-            requestPic(clientService, pic_url, dirname, qoffset)
-        end)
-    table.insert(picCos, picCo)
+    
+    DownloadingNum = DownloadingNum + 1
+    downloadGuard:Unlock()
+    
+    coroutine_start(function ()
+        requestPic(clientService, pic_url, dirname, qoffset)
+        
+        downloadGuard:Lock()
+        DownloadingNum = DownloadingNum - 1
+        assert(DownloadingNum >= 0)
+        downloadGuard:Unlock()
+        
+        downloadCond:notifyOne()
+    end)
 end
 
 -- 访问问题页面
@@ -129,7 +131,7 @@ local function requestQuestion(clientService, question_url, dirname, qoffset)
                                     requestdPic[pic_url] = true
                                     requestedPicNum = requestedPicNum + 1
                                     if ZhihuConfig.IsUseConcurrent then
-                                        ControlConcurrentRequestPic(clientService, pic_url, dirname, qoffset)    --(控制)同时开启N个请求
+                                        DownloadConcurrentControl(clientService, pic_url, dirname, qoffset)    --(控制)同时开启N个请求
                                     else
                                         --单协程(同时只一个图片连接请求,顺序同步完成)
                                         requestPic(clientService, pic_url, dirname, qoffset)
@@ -162,7 +164,7 @@ function userMain()
         -- 访问知乎搜索页面,搜索配置的关键字的相关问题
         for k,v in pairs(ZhihuConfig.querys) do
             for i=1,v.count do
-                local response = HttpClient.Request(clientService, zhihuAddres, 80, false, "GET", "/search", "www.zhihu.com", {type="content",q=urlEnCode(v.q), offset=v.startOffset+10*(i-1)},
+                local response = HttpClient.Request(clientService, zhihuAddres, 443, true, "GET", "/search", "www.zhihu.com", {type="content",q=urlEnCode(v.q), offset=v.startOffset+10*(i-1)},
                     {["Accept-Encoding"]= "gzip"})
                 local pos = 1
                 if response ~= nil then
@@ -183,8 +185,19 @@ function userMain()
                 end
             end
         end
-
-        isAllCompleted = true
+        
+        if not ZhihuConfig.IsUseConcurrent then
+            isAllCompleted = true
+        else
+            print("will end, sleep wait end")
+            while true do
+                coroutine_sleep(coroutine_running(), 1000)
+                if DownloadingNum == 0 then
+                    isAllCompleted = true
+                    break
+                end
+            end
+        end
     end)
 
     coroutine_start(function ()
@@ -211,5 +224,10 @@ do
     while coroutine_pengdingnum() > 0
     do
         coroutine_schedule()
+    end
+    
+    if isAllCompleted then
+        print("all completed, will break end")
+        break
     end
 end

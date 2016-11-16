@@ -1,5 +1,5 @@
 return {
-    IsUseConcurrent = false,     --是否开启并发(如果为true，才使用 MaxConcurrentPicNum)-- 经过测试,不开启它更安全和稳定
+    IsUseConcurrent = true,     --是否开启并发(如果为true，才使用 MaxConcurrentPicNum)-- 经过测试,不开启它更安全和稳定
     MaxConcurrentPicNum = 5,   --最多同时开启的图片请求
 
     saveDir = "ZhihuPic",   --图片的存放目录
