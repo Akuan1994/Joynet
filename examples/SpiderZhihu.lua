@@ -77,7 +77,7 @@ local function DownloadConcurrentControl(clientService, pic_url, dirname, qoffse
         assert(DownloadingNum >= 0)
         downloadGuard:Unlock()
         
-        downloadCond:notifyOne()
+        downloadCond:notifyAll()
     end)
 end
 
@@ -221,10 +221,7 @@ end)
 while true
 do
     CoreDD:loop()
-    while coroutine_pengdingnum() > 0
-    do
-        coroutine_schedule()
-    end
+    coroutine_schedule()
     
     if isAllCompleted then
         print("all completed, will break end")

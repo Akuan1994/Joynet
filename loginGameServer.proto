@@ -1,0 +1,8 @@
+syntax = "proto2";
+
+package agreement;
+
+message loginGameServerMsg 
+{
+	required string authentication = 1;	
+}

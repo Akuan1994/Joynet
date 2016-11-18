@@ -26,7 +26,7 @@ end
 
 function cond:notifyAll()
     while not self.block:IsEmpty() do
-        notifyOne()
+        self:notifyOne()
     end
 end
 

@@ -26,7 +26,7 @@ function channel:Recv()
 		if not msg then
 			local coObject = coroutine_running()
 			self.block:Push(coObject)
-			coroutine_sleep(coObject, 10000000)
+			coroutine_sleep(coObject)
 		else
 			return table.unpack(msg)
 		end

@@ -25,6 +25,8 @@ function userMain()
                                 --print("recv empty line")
                                 break
                             end
+                        else
+                            break
                         end
                     end
 
@@ -55,8 +57,5 @@ end)
 while true
 do
     CoreDD:loop()
-    while coroutine_pengdingnum() > 0
-    do
-        coroutine_schedule()
-    end
+    coroutine_schedule()
 end
