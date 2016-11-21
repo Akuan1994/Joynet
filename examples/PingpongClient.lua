@@ -6,7 +6,10 @@ local AcyncConnect = require "Connect"
 local totalRecvNum = 0
 
 function userMain()
-
+    CoreDD:startLuaTimer(1000, function()
+        print("delay 5000")
+    end)
+    
     --开启10个客户端
     local clientService = TcpService:New()
     clientService:createService()

@@ -183,12 +183,14 @@ public:
         return id;
     }
 
-    int64_t startLuaTimer(int delayMs, const sol::protected_function& callback)
+    int64_t startLuaTimer(int delayMs, sol::protected_function callback)
     {
+        printf("startLuaTimer lua state:%p\n", callback.lua_state());
         auto id = mTimerIDCreator.claim();
 
         auto timer = mTimerMgr->AddTimer(delayMs, [=]() {
             mTimerList.erase(id);
+            printf("before call, lua state:%p, index:%d \n", callback.lua_state(), callback.registry_index());
             callback();
         });
 

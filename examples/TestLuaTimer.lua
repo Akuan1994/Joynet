@@ -4,8 +4,10 @@ require("Joynet")
 require("Scheduler")
 
 for i = 0, 1000 do
-    CoreDD:startLuaTimer(1000, function()
-        print("haha")
+    coroutine_start(function ()
+        CoreDD:startLuaTimer(1000, function()
+            print("haha")
+        end)
     end)
 end
 
