@@ -53,6 +53,5 @@ end)
 while true
 do
     CoreDD:loop()
-    while coroutine_pengdingnum() > 0
     coroutine_schedule()
 end
