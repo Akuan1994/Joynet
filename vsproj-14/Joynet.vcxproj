@@ -58,7 +58,8 @@
       <AdditionalDependencies>lua53.lib;ws2_32.lib;libz.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
     <PostBuildEvent>
-      <Command>xcopy /y ..\3rdparty\lualib\lua53.dll ..\</Command>
+      <Command>xcopy /y ..\3rdparty\lualib\lua53.dll ..\
+xcopy /y ..\3rdparty\zlib\libz.dll ..\</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
@@ -79,7 +80,8 @@
       <AdditionalDependencies>lua53.lib;ws2_32.lib;libz.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
     <PostBuildEvent>
-      <Command>xcopy /y ..\3rdparty\lualib\lua53.dll ..\</Command>
+      <Command>xcopy /y ..\3rdparty\lualib\lua53.dll ..\
+xcopy /y ..\3rdparty\zlib\libz.dll ..\</Command>
     </PostBuildEvent>
     <CustomBuildStep>
       <Command>
