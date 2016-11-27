@@ -5,9 +5,20 @@ local AcyncConnect = require "Connect"
 
 local totalRecvNum = 0
 
+local timerList = {}
+
+local function startTimer(delay, callback)
+    if false then
+        CoreDD:startLuaTimer(delay, callback)
+    else
+        local luaTimer = {delay = delay, callback = callback}
+        timerList[#timerList+1] = luaTimer
+    end
+end
+
 function userMain()
-    CoreDD:startLuaTimer(1000, function()
-        print("delay 5000")
+    startTimer(1000, function()
+        --print("delay 5000")
     end)
     
     --开启10个客户端
@@ -58,5 +69,9 @@ end)
 while true
 do
     CoreDD:loop()
+    for k,v in pairs(timerList) do
+        CoreDD:startLuaTimer(v.delay, v.callback)
+    end
+    timerList = {}
     coroutine_schedule()
 end
